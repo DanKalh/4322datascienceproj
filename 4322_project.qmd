@@ -1,0 +1,439 @@
+---
+title: "What Was the Cost? - United States Greenhouse Gas Emissions"
+author: "Sebastian Garcia, Dan Kahlori, Keenan Salonga"
+format: html
+editor: visual
+---
+
+## Introduction
+
+Our team was motivated to create models that would highlight the biggest emitters of greenhouse gases in the United States. The inspiration stems from the increase of the global average temperature. Over the past year, it has risen by 1.1 degrees Celsius. This increase in temperature is attributed primarily to human activities. Most notably, the emission of greenhouse gases such as carbon dioxide and methane. The warming has led to significant changes in weather patterns, ice melt, sea-level rise, and impacts on the ecosystem and biodiversity.\
+\
+
+## Dataset
+
+URL: https://catalog.data.gov/dataset/supply-chain-greenhouse-gas-emission-factors-v1-2-by-naics-6
+
+There are three metrics - predictors - for CO2e, or carbon dioxide equivalent. They are:
+
+-   *Supply Chain Emission Factors without Margins*
+
+-   *Margins of Supply Chain Emission Factors*
+
+-   *Supply Chain Emission Factors*
+
+The first denotes the value of CO2e emissions directly related to the production of the commodities themselves. It does not include the additional emissions from after the production process. The second denotes the value of CO2e emissions from the additional activities (the margins) that occur after the primary production. This includes emissions from transportation, warehousing, retail operations, and other parts of the supply chain. The third denotes the combined value of CO2e from both the production process and subsequent margin activities.
+
+The unit for these three predictors is *kg CO2e / 2021 USD.*
+
+-   kg CO2e - Refers to the kilograms of carbon dioxide equivalent. Each observation is an aggregation of all observed GHGs produced by that industry, not just carbon dioxide. The values of non-carbon dioxide GHGs were calculated using "100-yr global warming potentials" to have a CO2e.
+
+-   2021 USD - per dollar, at its value in the year 2021.
+
+## Interpretation (Sebastian Garcia, Dan Kahlori, Keenan Salonga)
+
+Each observation of this dataset has a column for its NAICS code. The codes also indicate the sector and subsector each observation belongs. Let's read in the dataset and the supplementary file:
+
+```{r}
+original_data = read.csv("~/SupplyChainGHGEmissionFactors_v1.2_NAICS_CO2e_USD2021.csv")
+naics_definitions = read_excel("~/2-6 digit_2017_Codes.xlsx")
+
+```
+
+The first two digits of the NAICS code refer to the observation's general sector. The first three digits refer to its more specific subsector. Let's extrapolate the titles of each sector and subsector, then add them to our working dataset:
+
+```{r}
+# Filter for two-digit NAICS codes
+two_digit_naics <- naics_definitions %>%
+  filter(str_length(trimws(as.character(NAICS_Code))) == 2) %>%
+  select(NAICS_Code, NAICS_Title = NAICS_Title)
+
+# Filter for three-digit NAICS codes
+three_digit_naics <- naics_definitions %>%
+  filter(str_length(trimws(as.character(NAICS_Code))) == 3) %>%
+  select(NAICS_Code, NAICS_Subsector_Title = NAICS_Title)
+```
+
+```{r}
+# Extract first two and three digits of NAICS codes
+original_data <- original_data %>%
+  mutate(Two_Digit_NAICS = as.integer(substr(as.character(NAICS_Code), 1, 2)),
+         Three_Digit_NAICS = as.integer(substr(as.character(NAICS_Code), 1, 3)))
+
+# Merge with two-digit and three-digit NAICS data
+original_data <- original_data %>%
+  left_join(two_digit_naics, by = c("Two_Digit_NAICS" = "NAICS_Code")) %>%
+  left_join(three_digit_naics, by = c("Three_Digit_NAICS" = "NAICS_Code"))
+```
+
+```{r}
+write_csv(original_data, "updated_original_data.csv")
+
+SCGHG_sectors = original_data
+```
+
+Let's see some initial information about the dataset:
+
+```{r}
+head(SCGHG_sectors)
+```
+
+```{r}
+summary(SCGHG_sectors)
+```
+
+------------------------------------------------------------------------
+
+## Linear Regression (Dan Kahlori, Keenan Salonga)
+
+Now, let's try to determine how strong the relationship is between the overarching Sectors and each metric of CO2e:
+
+```{r}
+# Only Sector as a predictor
+
+set.seed(462)
+ # 70/30 split
+indexes = sample(1:nrow(SCGHG_sectors), size = 0.7 * nrow(SCGHG_sectors))
+sector.train = SCGHG_sectors[indexes, ]
+sector.test = SCGHG_sectors[-indexes, ]
+
+multivariate01.lm = lm(cbind(Supply.Chain.Emission.Factors.without.Margins ,
+                           Margins.of.Supply.Chain.Emission.Factors,
+                           Supply.Chain.Emission.Factors.with.Margins)
+                     ~ Sector, data = mvlm.train)
+
+summary(multivariate01.lm)
+```
+
+The general Sectors of the dataset do not seem to explain the variation in *Supply Chain Emission Factors without Margins* or *Supply Chain Emission Factors with Margins* very well. It does so for *Margins of Supply Chain Emission Factors*. This suggests the relationship between the former two may not necessarily be linear.
+
+The overarching sector appears to have a more interpretable impact on the margins of the supply chain emission factors than on the emission factors themselves.\
+\
+Per their *p*-values for *Supply Chain Emission Factors with Margins,* the sectors that are notably significant, in decreasing significance are:
+
+-   Agriculture, Forestry, Fishing, and Hunting
+
+-   Mining, Quarrying, and Oil and Gas Extraction
+
+-   Transportation and Warehousing
+
+-   Administration and Support and Waste Management and Remediation Services
+
+-   Manufacturing
+
+This makes sense, although we had expected that"Mining, Quarrying, and Oil and Gas Extraction" would be the sector that creates the most CO2e emissions. We had heard tangentially of the environmental cost of food production, but we assumed the mining of actual fossil fuels would outclass it.
+
+Let's now try to determine how strong the relationship is between the overarching Subsectors and each metric of CO2e:
+
+```{r}
+# Only Subsector as a predictor
+set.seed(462)
+ # 70/30 split
+indexes = sample(1:nrow(SCGHG_sectors), size = 0.7 * nrow(SCGHG_sectors))
+subsector.train = SCGHG_sectors[indexes, ]
+subsector.test = SCGHG_sectors[-indexes, ]
+
+multivariate02.lm = lm(cbind(Supply.Chain.Emission.Factors.without.Margins ,
+                           Margins.of.Supply.Chain.Emission.Factors,
+                           Supply.Chain.Emission.Factors.with.Margins)
+                     ~ Subsector, data = mvlm.train)
+summary(multivariate02.lm)
+```
+
+The subsectors of the dataset better explain the variation in all of the metrics for CO2e. This makes sense. The more detailed classifications within each Sector provide a finer granularity that is capable of capturing more minute patterns and details. By using *Subsector*, the models can match the variations present in the CO2e metrics that are more specific to these smaller groups.
+
+Subsectors also have more directly relevant variations affecting the emissions factors, like the specific technologies, processes, or regulatory environments. These variations are less likely to be uniform across the larger Sector.
+
+Generally across all observations, the three metrics for CO2e are indicative of one another. So, for simplicity, we will only use *Supply Chain Emission Factors with Margins* as the response variable moving forward.
+
+Let's find the MSE of the training and test sets for the previous linear regression models, using *Supply Chain Emission Factors with Margins* as the response variable. With *Sector* as the predictor:
+
+```{r}
+set.seed(462)
+
+indexes = sample(1:nrow(SCGHG_sectors), size = 0.7 * nrow(SCGHG_sectors))
+sector.train = SCGHG_sectors[indexes, ]
+sector.test = SCGHG_sectors[-indexes, ]
+
+sector.lm = lm( Supply.Chain.Emission.Factors.with.Margins ~ Sector, data = sector.train)
+
+mse.lm1 = mean(sector.lm$residuals^2)
+print(paste("Sector Lin. Regression MSE on Training Data:", mse.lm1))
+
+sector.pred = predict( sector.lm, newdata=sector.test)
+mse.test1 = mean((sector.test$Supply.Chain.Emission.Factors.with.Margins - sector.pred)^2)
+print(paste("Sector Lin. Regression MSE on Test Data:", mse.test1))
+```
+
+The MSE for the training data is 0.288492. The MSE for the test data is 0.126418. On average, the square of errors between the predicted values and the actual values is 0.288492 and 0.126418.
+
+To better interpret the MSE, let's get more information on *Supply Chain Emission Factors with Margins* takes on:
+
+```{r}
+summary(SCGHG_sectors$Supply.Chain.Emission.Factors.with.Margins)
+```
+
+The summary indicates that *Sector* model does not fit the data very well. It is unusual that the MSE for the test set is lower than that of the training set. Let's see if the *Subsector* linear model performs better. First, we have to clean the data to remove observations where their sector appears only once. This is so that, when splitting the dataset into training and testing sets, neither set has an observation whose subsector is not present in the other.
+
+```{r}
+library(dplyr)
+
+
+frequency = SCGHG_sectors %>%
+  count(Subsector, sort = TRUE)
+
+print(frequency)
+```
+
+The subsectors that only appear once are:
+
+-   Data Processing, Hosting, and Related Services
+
+-   Lessors of Nonfinancial Intangible Assets (except Copyrighted Works)
+
+-   Monetary Authorities-Central Bank
+
+-   Postal Service
+
+Let's remove them from the dataset for now, then find the MSEs for the training and test sets of the *Subsector* linear model:
+
+```{r}
+library(dplyr)
+library(caret)
+
+set.seed(462)
+
+filtered_df <- SCGHG_sectors %>%
+  add_count(Subsector) %>%
+  filter(n > 1) %>%
+  select(-n)
+
+split <- createDataPartition(filtered_df$Supply.Chain.Emission.Factors.with.Margins, 
+                             p = 0.7, list = FALSE)
+train <- filtered_df[split, ]
+test <- filtered_df[-split, ]
+
+subsector.lm = lm( Supply.Chain.Emission.Factors.with.Margins 
+                   ~ Subsector, data = train)
+
+mse.lm2 = mean(subsector.lm$residuals^2)
+print(paste("Subsector Lin. Regression MSE on Training Data:", mse.lm2))
+
+subsector.pred = predict( subsector.lm, newdata= test)
+mse.test2 = mean((test$Supply.Chain.Emission.Factors.with.Margins 
+                  - subsector.pred)^2)
+
+print(paste("Sector Lin. Regression MSE on Test Data:", mse.test2))
+```
+
+The MSE for the training and testing sets are 0.203743 and 0.107140, respectively. This is better than the *Sector* model, which makes sense. Again, the finer granularity of subsector classifications allows for more specific patterns to be captured.
+
+Now, let's go back to the findings of the models. Let's determine the significance of the subsectors that solely belong to the most significance sector, "Agriculture, Forestry, Fishing, and Hunting":
+
+```{r}
+agri.lm = lm( Supply.Chain.Emission.Factors.with.Margins ~ Subsector, 
+              data = subset(SCGHG_sectors, 
+                            Sector == "Agriculture, Forestry, Fishing and Hunting"))
+summary(agri.lm)
+```
+
+Within "Agriculture, Forestry, Fishing, and Hunting", it appears that all Subsectors except for "Crop Production" are significant. This sounds incorrect. Let's make the earlier linear regression model easier to read by explicitly listing the significant Subsectors:
+
+```{r}
+subsector.with = lm( Supply.Chain.Emission.Factors.with.Margins 
+                     ~ Subsector, data = SCGHG_sectors)
+coefficients <- coef(summary(subsector.with))
+significant_coeffs = coefficients[coefficients[, "Pr(>|t|)"] < 0.05, ]
+( ordered_significant_coeffs <- significant_coeffs[order(significant_coeffs[, "Pr(>|t|)"]), ] )
+```
+
+Per their *p*-values for *Supply Chain Emission Factors with Margins,* the four subsectors that are most significant are:
+
+-   Animal Production and Aquaculture
+
+-   Waste Management and Remediation Services
+
+-   Crop Production
+
+-   Pipeline Transportation
+
+That makes more sense, especially for "Crop Production". These four Subsectors do fall under the above Sectors. Generally, their individual significance increased the significance of their overarching Sector.
+
+Now, let's run cross-validation to evaluate the performance of the previous linear regression model:
+
+```{r}
+# install.packages("caret")
+library(caret)
+
+set.seed(462)
+
+train_control = trainControl(
+  method = "cv",  # 
+  number = 10   
+)
+
+model_cv = train( Supply.Chain.Emission.Factors.with.Margins 
+                   ~ Subsector, 
+                   data = SCGHG_sectors, 
+                   method = "lm", 
+                   trControl = train_control)
+print(model_cv)
+```
+
+The R\^2 value is higher than that of the linear model of the full dataset. This indicates that the full model, when trained on all available data, could be overfitting. This makes sense. Even the more specific Subsectors are bound to overlook the specifics of individual industries. A higher R\^2 value across these folds indicates that the model is stable. It performs better across different subsets of the data.
+
+Calculating the MSE:
+
+```{r}
+( 0.3877676 ^ 2)
+```
+
+The MSE of the cross-validated model is 0.1503637. This is higher than the test MSE of the original model, and lower than its training MSE. Cross-validation, by nature, provides a more robust estimate of a model's performance. This indicates that initial split of the original model may be overfitting.
+
+In summary:
+
+The linear regression model that examined the strength and nature of association between the predictor *Sector* and the response variable *Supply Chain Emission Factors with Margins* indicated that the most significant sector was "Agriculture, Forestry, Fishing and Hunting".
+
+The linear regression model that examined the strength and nature of association between the predictor *Subsector* and the response variable *Supply Chain Emission Factors with Margins* indicated that the most significant subsector was "Animal Production and Aquaculture".
+
+Now, let's use a different model to determine if the same conclusion can be made. We will use a regression decision tree:
+
+------------------------------------------------------------------------
+
+## Regression Tree and Random Forest (Keenan Salonga, Sebastian Garcia)
+
+```{r}
+# install.packages("rpart")
+library(rpart)
+library(tree)
+library(dplyr)
+library(caret)
+
+set.seed(462)
+
+filtered_df <- SCGHG_sectors %>%
+  add_count(Subsector) %>%
+  filter(n > 1) %>%
+  select(-n)
+
+split <- createDataPartition(filtered_df$Supply.Chain.Emission.Factors.with.Margins, 
+                             p = 0.7, list = FALSE)
+train <- filtered_df[split, ]
+test <- filtered_df[-split, ]
+
+# SCGHG_sectors$Subsector = as.factor(SCGHG_sectors$Subsector)
+tree_model <- rpart(Supply.Chain.Emission.Factors.with.Margins 
+                    ~ Subsector, data = train, method = "anova")
+
+plot(tree_model, main = "Regression Tree for Subsector")
+text(tree_model, pretty=0)
+```
+
+The length of subsector titles makes the tree difficult to interpret. Let's get a more readable output:
+
+```{r}
+print(tree_model)
+```
+
+The Subsectors of each node are detailed. The fourteen and fifteenth nodes indicate the subsectors with the highest values of CO2e. The subsectors present are the same as those determined by the linear regression model:
+
+-   Animal Production and Aquaculture
+
+-   Waste Management and Remediation Services
+
+-   Crop Production
+
+-   Pipeline Transportation\
+
+```{r}
+library(dplyr)
+library(caret)
+
+set.seed(462)
+
+filtered_df <- SCGHG_sectors %>%
+  add_count(Subsector) %>%
+  filter(n > 1) %>%
+  select(-n)
+
+split <- createDataPartition(filtered_df$Supply.Chain.Emission.Factors.with.Margins, 
+                             p = 0.7, list = FALSE)
+train <- filtered_df[split, ]
+test <- filtered_df[-split, ]
+
+predictions <- predict(tree_model, newdata = test)
+
+mse <- mean((SCGHG_sectors$Supply.Chain.Emission.Factors.with.Margins - predictions)^2)
+print(paste("Mean Squared Error:", mse))
+```
+
+The MSE of this regression tree is 0.1785. Let's try to see if we can achieve a lower value using a random forest:
+
+```{r}
+#install.packages("randomForest)
+library(randomForest)
+library(dplyr)
+library(caret)
+
+set.seed(462)
+
+filtered_df <- SCGHG_sectors %>%
+  add_count(Subsector) %>%
+  filter(n > 1) %>%
+  select(-n)
+
+split <- createDataPartition(filtered_df$Supply.Chain.Emission.Factors.with.Margins, 
+                             p = 0.7, list = FALSE)
+train <- filtered_df[split, ]
+test <- filtered_df[-split, ]
+
+ghg.rf <- randomForest(Supply.Chain.Emission.Factors.with.Margins 
+                         ~ Subsector, data = train , ntree = 500, importance = TRUE)
+print(ghg.rf)
+
+predictions <- predict(ghg.rf, newdata = test)
+mse_rf <- mean((ghg.test$Supply.Chain.Emission.Factors.with.Margins - predictions)^2)
+print(paste("Random Forest MSE on Test Data:", mse_rf))
+```
+
+The MSE of the random forest is higher than that of the single decision tree. This indicates that the effectiveness of the singular tree in predicting new data is limited. This is understandable, given the restricted nature of the *Subsector* predictor.
+
+In summary:
+
+The subsectors determined to be the largest producers of CO2e were the same as those found in the linear regression model. Those subsectors are:
+
+-   Animal Production and Aquaculture
+
+-   Waste Management and Remediation Services
+
+-   Crop Production
+
+-   Pipeline Transportation
+
+------------------------------------------------------------------------
+
+## Conclusion (Sebastian Garcia, Dan Khalori, Keenan Salonga)
+
+Through our analysis on the CO2-equivalent emission dataset comprising various industry sectors and subsectors has successfully identified those that are the largest contributors to GHG emissions. The key subsectors that have emerged as the highest emitters are:
+
+-   Animal Production and Aquaculture
+
+-   Waste Management and Remediation Services
+
+-   Crop Production
+
+-   Pipeline Transportation
+
+#### Implications
+
+The significant GHG emissions from these subsectors indicates these are the areas sustainability efforts need to focus on. Focusing on reducing the emissions of these subsectors would warrant the most substantial improvements in their respective sectors' overall carbon footprint. This approach not only aligns with global sustainability goals but also gives insight into how industries could potentially give rise to new methods that improve operational efficiencies while complying with environmental regulations.
+
+#### Methodology and Efficiency
+
+The Linear Regression model was the better one to use for answering the question. After cross-validating, we were able to determine the four worst subsectors, while the Random Forest model was only able to tell us the worst two. This on top of already finding the five worst sectors in general, allowed us to reach a much clearer conclusion for the entire dataset as opposed to focusing solely on the subsectors.
+
+### Future Research
+
+Further research should focus on quantifying the potential reductions in emissions that could be achieved through specific interventions in these subsectors. Additionally, exploring the economic impacts of such interventions would provide a holistic view of the benefits and costs associated with emission reduction strategies.
+
+------------------------------------------------------------------------
